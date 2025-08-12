@@ -166,6 +166,7 @@
                 <div id="fileDropZone" class="mb-4">
                     <p class="text-gray-500">將檔案拖曳至此處</p>
                     <p class="text-xs text-gray-400 mt-1">(支援 .txt 檔案，可用 Tab, 逗號, 直立線|分隔)</p>
+                    <!-- 檔案輸入框，透過 JS 點擊觸發，因此不需要顯示 -->
                     <input type="file" id="fileInput" class="hidden" accept=".txt">
                 </div>
                 
@@ -736,6 +737,13 @@
             
             const file = e.dataTransfer.files[0];
             if (file) {
+                processFile(file);
+            }
+        }
+        
+        // 處理檔案上傳
+        function processFile(file) {
+            if (file) {
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     const fileContent = event.target.result;
@@ -757,7 +765,7 @@
                 reader.readAsText(file);
             }
         }
-        
+
         // 綁定事件監聽器
         downloadExcelBtn.addEventListener('click', downloadExcel);
         downloadCSVBtn.addEventListener('click', downloadCSV);
@@ -776,6 +784,19 @@
             renderTablePreview();
         });
         
+        // 新增點擊 fileDropZone 來觸發 fileInput 的點擊事件
+        fileDropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // 處理 fileInput 變更時的檔案
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                processFile(file);
+            }
+        });
+
         fileDropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
