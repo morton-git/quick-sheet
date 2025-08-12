@@ -7,10 +7,13 @@
     <!-- 這裡加入了新的 favicon.png 連結 -->
     <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- 新增的 PDF 匯出函式庫 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -79,6 +82,23 @@
         .sortable-header.sorted-asc .sort-icon {
             transform: rotate(180deg);
         }
+        /* 新增的樣式，用於隱藏手動輸入表單或文字框 */
+        .hidden {
+            display: none;
+        }
+        /* 新增的拖曳區域樣式 */
+        #fileDropZone {
+            border: 2px dashed #d1d5db;
+            border-radius: 1rem;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #fileDropZone.dragover {
+            background-color: #e5e7eb;
+            border-color: #3b82f6;
+        }
     </style>
 </head>
 <body class="p-4 md:p-8 flex flex-col items-center">
@@ -94,43 +114,71 @@
     <div class="flex flex-col lg:flex-row w-full max-w-6xl space-y-6 lg:space-y-0 lg:space-x-6">
         <!-- 左側：表單輸入區 -->
         <div class="flex-1 w-full p-4 bg-white rounded-2xl shadow-md overflow-auto h-auto lg:h-[70vh]">
-            <h2 class="text-xl font-bold mb-4 text-gray-700">輸入內容</h2>
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-700">輸入內容</h2>
+                <!-- 新增模式切換按鈕 -->
+                <button id="toggleInputModeBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded-full transition-all duration-300">
+                    切換為貼上模式
+                </button>
+            </div>
             
-            <!-- 直式/橫式切換 -->
-            <div class="mb-4">
-                <label class="inline-flex items-center">
-                    <input type="radio" name="orientation" value="vertical" checked class="form-radio text-blue-600">
-                    <span class="ml-2 text-gray-700">直式</span>
-                </label>
-                <label class="inline-flex items-center ml-4">
-                    <input type="radio" name="orientation" value="horizontal" class="form-radio text-blue-600">
-                    <span class="ml-2 text-gray-700">橫式</span>
-                </label>
+            <!-- 手動輸入模式 (舊有功能) -->
+            <div id="manualInputContainer">
+                <!-- 直式/橫式切換 -->
+                <div class="mb-4">
+                    <label class="inline-flex items-center">
+                        <input type="radio" name="orientation" value="vertical" checked class="form-radio text-blue-600">
+                        <span class="ml-2 text-gray-700">直式</span>
+                    </label>
+                    <label class="inline-flex items-center ml-4">
+                        <input type="radio" name="orientation" value="horizontal" class="form-radio text-blue-600">
+                        <span class="ml-2 text-gray-700">橫式</span>
+                    </label>
+                </div>
+                <!-- 動態表單 -->
+                <div id="formContainer" class="w-full">
+                    <!-- 輸入欄位會在這裡動態生成 -->
+                </div>
+                <!-- 新增與刪除按鈕 -->
+                <div class="flex flex-wrap space-x-2 mt-4">
+                    <button id="addColumnBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition-all duration-300">
+                        新增欄位
+                    </button>
+                    <button id="addRowBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition-all duration-300">
+                        新增列
+                    </button>
+                    <button id="deleteColumnBtn" class="bg-red-400 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
+                        刪除欄位
+                    </button>
+                    <button id="deleteRowBtn" class="bg-red-400 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
+                        刪除列
+                    </button>
+                </div>
             </div>
 
-            <!-- 動態表單 -->
-            <div id="formContainer" class="w-full">
-                <!-- 輸入欄位會在這裡動態生成 -->
+            <!-- 貼上模式 (新增功能) -->
+            <div id="pasteInputContainer" class="hidden">
+                <p class="text-gray-600 mb-2">
+                    請從文件複製表格內容並貼到下方，或直接拖曳檔案到指定區域。程式會自動辨識 Tab、逗號 (,) 或 直立線 (|) 分隔的文字，並轉換成表格。
+                </p>
+                <textarea id="pasteTextArea" class="w-full h-[150px] p-2 mb-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                
+                <div id="fileDropZone" class="mb-4">
+                    <p class="text-gray-500">將檔案拖曳至此處</p>
+                    <p class="text-xs text-gray-400 mt-1">(支援 .txt 檔案，可用 Tab, 逗號, 直立線|分隔)</p>
+                    <input type="file" id="fileInput" class="hidden" accept=".txt">
+                </div>
+                
+                <div class="flex flex-wrap space-x-2 mt-4">
+                    <button id="parsePasteBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
+                        解析文字
+                    </button>
+                </div>
             </div>
-            
-            <!-- 新增與刪除按鈕 -->
-            <div class="flex flex-wrap space-x-2 mt-4">
-                <button id="addColumnBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition-all duration-300">
-                    新增欄位
-                </button>
-                <button id="addRowBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition-all duration-300">
-                    新增列
-                </button>
-                <button id="deleteColumnBtn" class="bg-red-400 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
-                    刪除欄位
-                </button>
-                <button id="deleteRowBtn" class="bg-red-400 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
-                    刪除列
-                </button>
-            </div>
+
         </div>
 
-        <!-- 右側：表格預覽區 -->
+        <!-- 右側：表格預覽與圖表區 -->
         <div class="flex-1 w-full p-4 bg-white rounded-2xl shadow-md overflow-auto h-auto lg:h-[70vh]">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold text-gray-700">表格預覽</h2>
@@ -146,6 +194,8 @@
                     </select>
                 </div>
             </div>
+            <!-- 新增篩選器輸入框 -->
+            <input type="text" id="filterInput" placeholder="輸入關鍵字篩選..." class="w-full p-2 mb-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
             <!-- 新增一個容器來處理手機上的水平滾動 -->
             <div id="tablePreview" class="w-full overflow-x-auto">
                 <!-- 表格會在這裡動態生成 -->
@@ -160,6 +210,10 @@
         </button>
         <button id="downloadCSVBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500">
             下載 CSV
+        </button>
+        <!-- 新增下載 PDF 按鈕 -->
+        <button id="downloadPDFBtn" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500">
+            下載 PDF
         </button>
         <button id="shareToLineBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500">
             分享到 Line (複製文字)
@@ -179,10 +233,18 @@
 
     <script>
         // 取得所有 DOM 元素
+        const manualInputContainer = document.getElementById('manualInputContainer');
+        const pasteInputContainer = document.getElementById('pasteInputContainer');
+        const toggleInputModeBtn = document.getElementById('toggleInputModeBtn');
+        const pasteTextArea = document.getElementById('pasteTextArea');
+        const parsePasteBtn = document.getElementById('parsePasteBtn');
+        const fileDropZone = document.getElementById('fileDropZone');
+        const fileInput = document.getElementById('fileInput');
         const formContainer = document.getElementById('formContainer');
         const tablePreview = document.getElementById('tablePreview');
         const downloadExcelBtn = document.getElementById('downloadExcelBtn');
         const downloadCSVBtn = document.getElementById('downloadCSVBtn');
+        const downloadPDFBtn = document.getElementById('downloadPDFBtn');
         const shareToLineBtn = document.getElementById('shareToLineBtn');
         const addColumnBtn = document.getElementById('addColumnBtn');
         const addRowBtn = document.getElementById('addRowBtn');
@@ -193,12 +255,15 @@
         const messageModal = document.getElementById('messageModal');
         const modalTitle = document.getElementById('modalTitle');
         const modalMessage = document.getElementById('modalMessage');
+        const filterInput = document.getElementById('filterInput');
         
         // 初始資料
         let data = [['項目', '數量', '價格'], ['蘋果', '10', '25'], ['香蕉', '15', '18'], ['橘子', '8', '30']];
         let orientation = 'vertical';
+        let inputMode = 'manual'; // 新增的狀態變數，用於追蹤輸入模式
         let sortColumnIndex = -1;
         let sortDirection = 'asc';
+        let filterText = '';
 
         // 顯示訊息彈窗
         function showMessageModal(title, message) {
@@ -209,17 +274,16 @@
 
         /**
          * 渲染輸入表單。
-         * 根據直式或橫式模式，動態調整輸入框的排列。
          */
         function renderForm() {
+            if (inputMode !== 'manual') return;
+
             formContainer.innerHTML = '';
             
-            // 根據方向，決定渲染原始資料或轉置後的資料
             const displayData = orientation === 'vertical' ? data : transpose(data);
             const numRows = displayData.length;
             const numCols = displayData[0] ? displayData[0].length : 0;
             
-            // 根據顯示資料的欄數來設定 grid 模板
             formContainer.style.gridTemplateColumns = `repeat(${numCols}, minmax(0, 1fr))`;
             formContainer.className = 'input-grid';
 
@@ -230,12 +294,14 @@
                     input.value = displayData[r][c] || '';
                     input.placeholder = (r === 0) ? `欄位 ${c + 1}` : `列 ${r}, 欄 ${c + 1}`;
                     input.oninput = (e) => {
-                        // 根據方向，將輸入值存回原始資料陣列的正確位置
                         if (orientation === 'vertical') {
-                            data[r][c] = e.target.value;
+                            if (data[r] && data[r][c] !== undefined) {
+                                data[r][c] = e.target.value;
+                            }
                         } else {
-                            // 轉置座標: displayData[r][c] 對應到 data[c][r]
-                            data[c][r] = e.target.value;
+                            if (data[c] && data[c][r] !== undefined) {
+                                data[c][r] = e.target.value;
+                            }
                         }
                         renderTablePreview();
                     };
@@ -246,10 +312,6 @@
 
         /**
          * 執行運算並返回結果。
-         * 處理加、減、乘、除、平均等邏輯。
-         * @param {Array<number>} numbers - 要運算的數字陣列。
-         * @param {string} type - 運算類型 ('sum', 'average', 'subtract', 'multiply', 'divide')。
-         * @returns {string} 運算結果或錯誤訊息。
          */
         function performCalculation(numbers, type) {
             if (numbers.length === 0) return 'N/A';
@@ -282,7 +344,6 @@
 
         /**
          * 核心功能：生成表格預覽。
-         * 現在會根據運算選擇器來顯示對應的運算結果。
          */
         function renderTablePreview() {
             tablePreview.innerHTML = '';
@@ -300,7 +361,15 @@
             
             const previewData = orientation === 'vertical' ? data : transpose(data);
             const headers = previewData[0];
-            const bodyData = previewData.slice(1);
+            let bodyData = previewData.slice(1);
+
+            // 根據篩選關鍵字進行過濾
+            if (filterText) {
+                const filterLower = filterText.toLowerCase();
+                bodyData = bodyData.filter(row => {
+                    return row.some(cell => String(cell).toLowerCase().includes(filterLower));
+                });
+            }
             
             headers.forEach((headerText, index) => {
                 const th = document.createElement('th');
@@ -336,7 +405,6 @@
             tfoot.className = "text-xs text-gray-700 bg-gray-100";
             const sumRow = tfoot.insertRow();
             
-            // 取得選取的運算類型
             const calculationType = calculationSelector.value;
             
             headers.forEach((_, colIndex) => {
@@ -360,7 +428,9 @@
             tablePreview.appendChild(table);
         }
 
-        // 下載 Excel 功能
+        /**
+         * 下載 Excel 功能
+         */
         function downloadExcel() {
             const table = tablePreview.querySelector('table');
             if (!table) {
@@ -372,7 +442,9 @@
             XLSX.writeFile(workbook, "秒速表格.xlsx");
         }
 
-        // 下載 CSV 功能
+        /**
+         * 下載 CSV 功能
+         */
         function downloadCSV() {
             if (data.length === 0 || data[0].length === 0) {
                 showMessageModal('下載失敗', '請先在左側輸入表格內容。');
@@ -394,6 +466,61 @@
                 document.body.removeChild(link);
             } else {
                 showMessageModal('下載失敗', '您的瀏覽器不支援此功能，請使用其他瀏覽器。');
+            }
+        }
+        
+        /**
+         * 下載 PDF 功能
+         */
+        async function downloadPDF() {
+            const tableElement = tablePreview.querySelector('table');
+            if (!tableElement) {
+                showMessageModal('下載失敗', '請先在左側輸入表格內容。');
+                return;
+            }
+
+            showMessageModal('下載中', '正在產生 PDF，請稍候...');
+
+            const originalWidth = tableElement.offsetWidth;
+            
+            // 暫時調整樣式以確保 PDF 輸出良好
+            tableElement.style.width = '100%'; 
+            
+            try {
+                const canvas = await html2canvas(tableElement, {
+                    scale: 2, // 提高解析度
+                    useCORS: true,
+                    allowTaint: true
+                });
+
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF('p', 'mm', 'a4'); // 'p' 為直向, 'mm' 為單位, 'a4' 為尺寸
+
+                const imgWidth = 210; // A4 寬度 (mm)
+                const pageHeight = 295; // A4 高度 (mm)
+                const imgHeight = canvas.height * imgWidth / canvas.width;
+                let heightLeft = imgHeight;
+                let position = 0;
+
+                doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                heightLeft -= pageHeight;
+
+                while (heightLeft >= 0) {
+                    position = heightLeft - imgHeight;
+                    doc.addPage();
+                    doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+                    heightLeft -= pageHeight;
+                }
+
+                doc.save('秒速表格.pdf');
+                showMessageModal('下載成功', 'PDF 文件已成功匯出。');
+            } catch (error) {
+                console.error("PDF下載失敗:", error);
+                showMessageModal('下載失敗', '產生 PDF 時發生錯誤。');
+            } finally {
+                // 恢復原始寬度
+                tableElement.style.width = `${originalWidth}px`;
             }
         }
 
@@ -450,17 +577,21 @@
 
         // 處理新增列
         function handleAddRow() {
-            const newRow = new Array(data[0].length).fill('');
-            data.push(newRow);
-            renderForm();
-            renderTablePreview();
+            if (data.length > 0) {
+                const newRow = new Array(data[0].length).fill('');
+                data.push(newRow);
+                renderForm();
+                renderTablePreview();
+            }
         }
 
         // 處理新增欄位
         function handleAddColumn() {
-            data.forEach(row => row.push(''));
-            renderForm();
-            renderTablePreview();
+            if (data.length > 0) {
+                data.forEach(row => row.push(''));
+                renderForm();
+                renderTablePreview();
+            }
         }
 
         // 處理刪除列
@@ -512,7 +643,7 @@
                 if (!isNaN(numA) && !isNaN(numB)) {
                     return sortDirection === 'asc' ? numA - numB : numB - numA;
                 } else {
-                    return sortDirection === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+                    return sortDirection === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(a));
                 }
             });
             
@@ -521,9 +652,116 @@
             renderTablePreview();
         }
 
+        // 處理模式切換
+        function handleInputModeToggle() {
+            if (inputMode === 'manual') {
+                inputMode = 'paste';
+                manualInputContainer.classList.add('hidden');
+                pasteInputContainer.classList.remove('hidden');
+                toggleInputModeBtn.textContent = '切換為手動模式';
+            } else {
+                inputMode = 'manual';
+                manualInputContainer.classList.remove('hidden');
+                pasteInputContainer.classList.add('hidden');
+                toggleInputModeBtn.textContent = '切換為貼上模式';
+                renderForm();
+            }
+        }
+        
+        /**
+         * 強化後的解析功能：自動偵測分隔符號。
+         */
+        function parseText(text) {
+            text = text.trim();
+            if (text === '') {
+                return false;
+            }
+            
+            const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+            if (lines.length === 0) {
+                return false;
+            }
+            
+            let delimiter = '\t';
+            if (lines[0].includes('\t')) {
+                delimiter = '\t';
+            } else if (lines[0].includes(',')) {
+                delimiter = ',';
+            } else if (lines[0].includes('|')) {
+                delimiter = '|';
+            } else {
+                showMessageModal('解析警告', '找不到常見的分隔符號 (Tab, 逗號, 直立線)，將嘗試以單一欄位處理。');
+                data = lines.map(line => [line.trim()]);
+                return true;
+            }
+
+            data = lines.map(line => {
+                return line.split(delimiter).map(cell => cell.trim());
+            });
+
+            const maxLength = Math.max(...data.map(row => row.length));
+            data = data.map(row => {
+                while (row.length < maxLength) {
+                    row.push('');
+                }
+                return row;
+            });
+
+            return true;
+        }
+
+
+        // 處理解析文字按鈕
+        function handleParsePaste() {
+            const text = pasteTextArea.value.trim();
+            if (text === '') {
+                showMessageModal('解析失敗', '請先貼上表格內容或拖曳檔案。');
+                return;
+            }
+
+            if (parseText(text)) {
+                showMessageModal('解析成功', '已成功將文字轉換為表格。');
+                renderTablePreview();
+                renderForm();
+            } else {
+                showMessageModal('解析失敗', '請確認貼上的內容為有效的表格格式。');
+            }
+        }
+        
+        // 處理拖曳上傳檔案
+        function handleFileDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            fileDropZone.classList.remove('dragover');
+            
+            const file = e.dataTransfer.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const fileContent = event.target.result;
+                    if (file.type === 'text/plain') {
+                        if (parseText(fileContent)) {
+                            showMessageModal('檔案解析成功', '已成功將檔案內容轉換為表格。');
+                            renderTablePreview();
+                            renderForm();
+                        } else {
+                            showMessageModal('解析失敗', '檔案內容格式無效，請確認為純文字格式。');
+                        }
+                    } else {
+                        showMessageModal('不支援的檔案格式', '僅支援 .txt 檔案。');
+                    }
+                };
+                reader.onerror = (error) => {
+                    showMessageModal('讀取失敗', '讀取檔案時發生錯誤。');
+                };
+                reader.readAsText(file);
+            }
+        }
+        
         // 綁定事件監聽器
         downloadExcelBtn.addEventListener('click', downloadExcel);
         downloadCSVBtn.addEventListener('click', downloadCSV);
+        downloadPDFBtn.addEventListener('click', downloadPDF);
         shareToLineBtn.addEventListener('click', shareToLine);
         addColumnBtn.addEventListener('click', handleAddColumn);
         addRowBtn.addEventListener('click', handleAddRow);
@@ -531,6 +769,24 @@
         deleteRowBtn.addEventListener('click', handleDeleteRow);
         orientationRadios.forEach(radio => radio.addEventListener('change', handleOrientationChange));
         calculationSelector.addEventListener('change', renderTablePreview);
+        toggleInputModeBtn.addEventListener('click', handleInputModeToggle);
+        parsePasteBtn.addEventListener('click', handleParsePaste);
+        filterInput.addEventListener('input', () => {
+            filterText = filterInput.value;
+            renderTablePreview();
+        });
+        
+        fileDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fileDropZone.classList.add('dragover');
+        });
+        fileDropZone.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fileDropZone.classList.remove('dragover');
+        });
+        fileDropZone.addEventListener('drop', handleFileDrop);
         
         // 初始化時，渲染表單和預覽
         window.addEventListener('load', () => {
