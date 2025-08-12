@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>秒速表格</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #333;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+            backdrop-filter: blur(5px);
+        }
+        .modal-content {
+            background-color: #fff;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 1rem;
+            width: 80%;
+            max-width: 400px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            animation-name: animatetop;
+            animation-duration: 0.4s;
+        }
+        @keyframes animatetop {
+            from { top: -300px; opacity: 0; }
+            to { top: 0; opacity: 1; }
+        }
+        .input-grid {
+            display: grid;
+            gap: 0.5rem;
+        }
+        .input-grid input {
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid #d1d5db;
+            background-color: #f9fafb;
+            transition: all 0.2s;
+        }
+        .input-grid input:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+        }
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+        }
+        .sortable-header .sort-icon {
+            margin-left: 0.5rem;
+            opacity: 0.2;
+            transition: opacity 0.2s;
+        }
+        .sortable-header:hover .sort-icon {
+            opacity: 0.5;
+        }
+        .sortable-header.sorted .sort-icon {
+            opacity: 1;
+        }
+        .sortable-header.sorted-asc .sort-icon {
+            transform: rotate(180deg);
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex flex-col items-center">
+
+    <h1 class="text-3xl md:text-4xl font-bold text-center mb-6 text-gray-800">秒速表格</h1>
+    <p class="text-center text-gray-600 mb-4 max-w-2xl">
+        這是一個能快速生成試算表的工具。在左側輸入資料，右側會即時產生表格預覽，並自動計算數字欄位的總和。
+    </p>
+    <p class="text-center text-red-500 mb-8 max-w-2xl">
+        本網頁僅簡單應用實現試算表輸入與輸出的功能，請利用電腦端及平板端，方便友善使用，手機端會有較不友善的顯示情形，請多海涵。
+    </p>
+
+    <div class="flex flex-col lg:flex-row w-full max-w-6xl space-y-6 lg:space-y-0 lg:space-x-6">
+        <!-- 左側：表單輸入區 -->
+        <div class="flex-1 w-full p-4 bg-white rounded-2xl shadow-md overflow-auto h-auto lg:h-[70vh]">
+            <h2 class="text-xl font-bold mb-4 text-gray-700">輸入內容</h2>
+            
+            <!-- 直式/橫式切換 -->
+            <div class="mb-4">
+                <label class="inline-flex items-center">
+                    <input type="radio" name="orientation" value="vertical" checked class="form-radio text-blue-600">
+                    <span class="ml-2 text-gray-700">直式</span>
+                </label>
+                <label class="inline-flex items-center ml-4">
+                    <input type="radio" name="orientation" value="horizontal" class="form-radio text-blue-600">
+                    <span class="ml-2 text-gray-700">橫式</span>
+                </label>
+            </div>
+
+            <!-- 動態表單 -->
+            <div id="formContainer" class="w-full">
+                <!-- 輸入欄位會在這裡動態生成 -->
+            </div>
+            
+            <!-- 新增與刪除按鈕 -->
+            <div class="flex flex-wrap space-x-2 mt-4">
+                <button id="addColumnBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition-all duration-300">
+                    新增欄位
+                </button>
+                <button id="addRowBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full transition-all duration-300">
+                    新增列
+                </button>
+                <button id="deleteColumnBtn" class="bg-red-400 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
+                    刪除欄位
+                </button>
+                <button id="deleteRowBtn" class="bg-red-400 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
+                    刪除列
+                </button>
+            </div>
+        </div>
+
+        <!-- 右側：表格預覽區 -->
+        <div class="flex-1 w-full p-4 bg-white rounded-2xl shadow-md overflow-auto h-auto lg:h-[70vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold text-gray-700">表格預覽</h2>
+                <!-- 新增運算選擇器 -->
+                <div class="flex items-center space-x-2">
+                    <label for="calculationSelector" class="text-sm font-medium text-gray-700">運算：</label>
+                    <select id="calculationSelector" class="px-2 py-1 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="sum">總計</option>
+                        <option value="average">平均</option>
+                        <option value="subtract">相減</option>
+                        <option value="multiply">相乘</option>
+                        <option value="divide">相除</option>
+                    </select>
+                </div>
+            </div>
+            <!-- 新增一個容器來處理手機上的水平滾動 -->
+            <div id="tablePreview" class="w-full overflow-x-auto">
+                <!-- 表格會在這裡動態生成 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 下方：功能按鈕區 -->
+    <div class="flex flex-wrap justify-center space-x-2 md:space-x-4 mt-8">
+        <button id="downloadExcelBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500">
+            下載 Excel
+        </button>
+        <button id="downloadCSVBtn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500">
+            下載 CSV
+        </button>
+        <button id="shareToLineBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            分享到 Line (複製文字)
+        </button>
+    </div>
+
+    <!-- 訊息彈窗 -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content">
+            <h3 id="modalTitle" class="text-xl font-bold mb-4"></h3>
+            <p id="modalMessage" class="mb-4"></p>
+            <button onclick="document.getElementById('messageModal').style.display='none'" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-full float-right transition-all duration-300">
+                關閉
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 取得所有 DOM 元素
+        const formContainer = document.getElementById('formContainer');
+        const tablePreview = document.getElementById('tablePreview');
+        const downloadExcelBtn = document.getElementById('downloadExcelBtn');
+        const downloadCSVBtn = document.getElementById('downloadCSVBtn');
+        const shareToLineBtn = document.getElementById('shareToLineBtn');
+        const addColumnBtn = document.getElementById('addColumnBtn');
+        const addRowBtn = document.getElementById('addRowBtn');
+        const deleteColumnBtn = document.getElementById('deleteColumnBtn');
+        const deleteRowBtn = document.getElementById('deleteRowBtn');
+        const orientationRadios = document.getElementsByName('orientation');
+        const calculationSelector = document.getElementById('calculationSelector');
+        const messageModal = document.getElementById('messageModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        
+        // 初始資料
+        let data = [['項目', '數量', '價格'], ['蘋果', '10', '25'], ['香蕉', '15', '18'], ['橘子', '8', '30']];
+        let orientation = 'vertical';
+        let sortColumnIndex = -1;
+        let sortDirection = 'asc';
+
+        // 顯示訊息彈窗
+        function showMessageModal(title, message) {
+            modalTitle.textContent = title;
+            modalMessage.textContent = message;
+            messageModal.style.display = "block";
+        }
+
+        /**
+         * 渲染輸入表單。
+         * 根據直式或橫式模式，動態調整輸入框的排列。
+         */
+        function renderForm() {
+            formContainer.innerHTML = '';
+            
+            // 根據方向，決定渲染原始資料或轉置後的資料
+            const displayData = orientation === 'vertical' ? data : transpose(data);
+            const numRows = displayData.length;
+            const numCols = displayData[0] ? displayData[0].length : 0;
+            
+            // 根據顯示資料的欄數來設定 grid 模板
+            formContainer.style.gridTemplateColumns = `repeat(${numCols}, minmax(0, 1fr))`;
+            formContainer.className = 'input-grid';
+
+            for (let r = 0; r < numRows; r++) {
+                for (let c = 0; c < numCols; c++) {
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.value = displayData[r][c] || '';
+                    input.placeholder = (r === 0) ? `欄位 ${c + 1}` : `列 ${r}, 欄 ${c + 1}`;
+                    input.oninput = (e) => {
+                        // 根據方向，將輸入值存回原始資料陣列的正確位置
+                        if (orientation === 'vertical') {
+                            data[r][c] = e.target.value;
+                        } else {
+                            // 轉置座標: displayData[r][c] 對應到 data[c][r]
+                            data[c][r] = e.target.value;
+                        }
+                        renderTablePreview();
+                    };
+                    formContainer.appendChild(input);
+                }
+            }
+        }
+
+        /**
+         * 執行運算並返回結果。
+         * 處理加、減、乘、除、平均等邏輯。
+         * @param {Array<number>} numbers - 要運算的數字陣列。
+         * @param {string} type - 運算類型 ('sum', 'average', 'subtract', 'multiply', 'divide')。
+         * @returns {string} 運算結果或錯誤訊息。
+         */
+        function performCalculation(numbers, type) {
+            if (numbers.length === 0) return 'N/A';
+
+            switch (type) {
+                case 'sum':
+                    const sum = numbers.reduce((acc, curr) => acc + curr, 0);
+                    return `總計: ${sum.toLocaleString()}`;
+                case 'average':
+                    const avg = numbers.reduce((acc, curr) => acc + curr, 0) / numbers.length;
+                    return `平均: ${avg.toFixed(2)}`;
+                case 'subtract':
+                    if (numbers.length < 2) return 'N/A';
+                    const subtract = numbers.slice(1).reduce((acc, curr) => acc - curr, numbers[0]);
+                    return `相減: ${subtract.toLocaleString()}`;
+                case 'multiply':
+                    const multiply = numbers.reduce((acc, curr) => acc * curr, 1);
+                    return `相乘: ${multiply.toLocaleString()}`;
+                case 'divide':
+                    if (numbers.length < 2) return 'N/A';
+                    const divide = numbers.slice(1).reduce((acc, curr) => {
+                        if (curr === 0) throw new Error("除以零錯誤");
+                        return acc / curr;
+                    }, numbers[0]);
+                    return `相除: ${divide.toFixed(2)}`;
+                default:
+                    return '';
+            }
+        }
+
+        /**
+         * 核心功能：生成表格預覽。
+         * 現在會根據運算選擇器來顯示對應的運算結果。
+         */
+        function renderTablePreview() {
+            tablePreview.innerHTML = '';
+            
+            if (data.length === 0 || data[0].length === 0) {
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.className = "w-full text-left text-sm text-gray-500 rounded-lg overflow-hidden border-collapse striped-rows";
+            
+            const thead = table.createTHead();
+            thead.className = "text-xs text-gray-700 uppercase bg-gray-50";
+            const headerRow = thead.insertRow();
+            
+            const previewData = orientation === 'vertical' ? data : transpose(data);
+            const headers = previewData[0];
+            const bodyData = previewData.slice(1);
+            
+            headers.forEach((headerText, index) => {
+                const th = document.createElement('th');
+                th.scope = "col";
+                th.className = "py-3 px-6 sortable-header bold-header text-center-cell";
+                th.textContent = headerText;
+                th.dataset.columnIndex = index;
+                th.innerHTML += `<span class="sort-icon">▲</span>`;
+                
+                if (index === sortColumnIndex) {
+                    th.classList.add('sorted', `sorted-${sortDirection}`);
+                }
+
+                th.addEventListener('click', () => {
+                    handleSort(index);
+                });
+                headerRow.appendChild(th);
+            });
+
+            const tbody = table.createTBody();
+            tbody.className = "bg-white";
+            bodyData.forEach((rowData, index) => {
+                const row = tbody.insertRow();
+                row.className = "border-b hover:bg-gray-50";
+                rowData.forEach(value => {
+                    const td = row.insertCell();
+                    td.className = "py-4 px-6";
+                    td.textContent = value;
+                });
+            });
+
+            const tfoot = table.createTFoot();
+            tfoot.className = "text-xs text-gray-700 bg-gray-100";
+            const sumRow = tfoot.insertRow();
+            
+            // 取得選取的運算類型
+            const calculationType = calculationSelector.value;
+            
+            headers.forEach((_, colIndex) => {
+                const td = sumRow.insertCell();
+                td.className = "py-3 px-6 font-bold";
+                
+                const columnValues = bodyData.map(row => parseFloat(row[colIndex])).filter(value => !isNaN(value));
+                
+                let resultText = 'N/A';
+                if (columnValues.length > 0) {
+                    try {
+                        resultText = performCalculation(columnValues, calculationType);
+                    } catch (e) {
+                        resultText = e.message;
+                    }
+                }
+                
+                td.textContent = resultText;
+            });
+
+            tablePreview.appendChild(table);
+        }
+
+        // 下載 Excel 功能
+        function downloadExcel() {
+            const table = tablePreview.querySelector('table');
+            if (!table) {
+                showMessageModal('下載失敗', '請先在左側輸入表格內容。');
+                return;
+            }
+
+            const workbook = XLSX.utils.table_to_book(table, { sheet: "秒速表格" });
+            XLSX.writeFile(workbook, "秒速表格.xlsx");
+        }
+
+        // 下載 CSV 功能
+        function downloadCSV() {
+            if (data.length === 0 || data[0].length === 0) {
+                showMessageModal('下載失敗', '請先在左側輸入表格內容。');
+                return;
+            }
+
+            const previewData = orientation === 'vertical' ? data : transpose(data);
+            const csvContent = previewData.map(row => row.join(',')).join('\n');
+            const blob = new Blob(["\ufeff", csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "秒速表格.csv");
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                showMessageModal('下載失敗', '您的瀏覽器不支援此功能，請使用其他瀏覽器。');
+            }
+        }
+
+        // 分享到 Line (複製文字) 功能
+        function shareToLine() {
+            const tableText = getTableText();
+            if (!tableText) {
+                showMessageModal('分享失敗', '請先在左側輸入表格內容。');
+                return;
+            }
+            
+            const tempTextArea = document.createElement("textarea");
+            tempTextArea.value = tableText;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showMessageModal('複製成功', '表格內容已複製到剪貼簿，請開啟 Line 貼上。');
+                } else {
+                    throw new Error('複製失敗');
+                }
+            } catch (err) {
+                showMessageModal('複製失敗', '無法自動複製，請手動選取右側表格內容後複製。');
+            } finally {
+                document.body.removeChild(tempTextArea);
+            }
+        }
+
+        // 取得表格的文字內容
+        function getTableText() {
+            if (data.length === 0 || data[0].length === 0) {
+                return null;
+            }
+            
+            let text = "";
+            const previewData = orientation === 'vertical' ? data : transpose(data);
+            
+            previewData.forEach(row => {
+                text += row.join('\t') + '\n';
+            });
+            return text;
+        }
+
+        // 轉置陣列
+        function transpose(matrix) {
+            if (matrix.length === 0 || matrix[0].length === 0) {
+                return [[]];
+            }
+            const transposed = matrix[0].map((_, colIndex) => matrix.map(row => row[colIndex]));
+            return transposed;
+        }
+
+        // 處理新增列
+        function handleAddRow() {
+            const newRow = new Array(data[0].length).fill('');
+            data.push(newRow);
+            renderForm();
+            renderTablePreview();
+        }
+
+        // 處理新增欄位
+        function handleAddColumn() {
+            data.forEach(row => row.push(''));
+            renderForm();
+            renderTablePreview();
+        }
+
+        // 處理刪除列
+        function handleDeleteRow() {
+            if (data.length <= 1) {
+                showMessageModal('無法刪除', '至少需要保留一列。');
+                return;
+            }
+            data.pop();
+            renderForm();
+            renderTablePreview();
+        }
+
+        // 處理刪除欄位
+        function handleDeleteColumn() {
+            if (data[0].length <= 1) {
+                showMessageModal('無法刪除', '至少需要保留一欄。');
+                return;
+            }
+            data.forEach(row => row.pop());
+            renderForm();
+            renderTablePreview();
+        }
+
+        // 處理方向切換
+        function handleOrientationChange(event) {
+            orientation = event.target.value;
+            renderForm();
+            renderTablePreview();
+        }
+
+        // 處理排序
+        function handleSort(columnIndex) {
+            if (sortColumnIndex === columnIndex) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortColumnIndex = columnIndex;
+                sortDirection = 'asc';
+            }
+            
+            const [headers, ...rows] = data;
+            const sortedRows = rows.sort((a, b) => {
+                const valA = a[columnIndex];
+                const valB = b[columnIndex];
+                
+                const numA = parseFloat(valA);
+                const numB = parseFloat(valB);
+
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    return sortDirection === 'asc' ? numA - numB : numB - numA;
+                } else {
+                    return sortDirection === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+                }
+            });
+            
+            data = [headers, ...sortedRows];
+            renderForm();
+            renderTablePreview();
+        }
+
+        // 綁定事件監聽器
+        downloadExcelBtn.addEventListener('click', downloadExcel);
+        downloadCSVBtn.addEventListener('click', downloadCSV);
+        shareToLineBtn.addEventListener('click', shareToLine);
+        addColumnBtn.addEventListener('click', handleAddColumn);
+        addRowBtn.addEventListener('click', handleAddRow);
+        deleteColumnBtn.addEventListener('click', handleDeleteColumn);
+        deleteRowBtn.addEventListener('click', handleDeleteRow);
+        orientationRadios.forEach(radio => radio.addEventListener('change', handleOrientationChange));
+        calculationSelector.addEventListener('change', renderTablePreview);
+        
+        // 初始化時，渲染表單和預覽
+        window.addEventListener('load', () => {
+            renderForm();
+            renderTablePreview();
+        });
+    </script>
+</body>
+</html>
