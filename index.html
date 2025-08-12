@@ -7,7 +7,7 @@
     <!-- 這裡加入了新的 favicon.png 連結 -->
     <link rel="icon" href="/favicon.png" type="image/png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -87,7 +87,7 @@
             display: none;
         }
         /* 新增的拖曳區域樣式 */
-        #fileDropZone {
+        #dropZone {
             border: 2px dashed #d1d5db;
             border-radius: 1rem;
             padding: 2rem;
@@ -95,7 +95,7 @@
             cursor: pointer;
             transition: all 0.2s;
         }
-        #fileDropZone.dragover {
+        #dropZone.dragover {
             background-color: #e5e7eb;
             border-color: #3b82f6;
         }
@@ -161,18 +161,28 @@
                 <p class="text-gray-600 mb-2">
                     請從文件複製表格內容並貼到下方，或直接拖曳檔案到指定區域。程式會自動辨識 Tab、逗號 (,) 或 直立線 (|) 分隔的文字，並轉換成表格。
                 </p>
-                <textarea id="pasteTextArea" class="w-full h-[150px] p-2 mb-4 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                <textarea id="pasteTextArea" class="w-full h-[150px] p-2 mb-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
                 
-                <div id="fileDropZone" class="mb-4">
-                    <p class="text-gray-500">將檔案拖曳至此處</p>
+                <!-- 強化後的「忽略第一行」選項 -->
+                <div class="mb-4">
+                    <label class="inline-flex items-center">
+                        <input type="checkbox" id="skipFirstRow" class="form-checkbox text-blue-600 h-4 w-4">
+                        <span class="ml-2 text-sm text-gray-700">貼上內容包含總標題，請從第二行開始解析</span>
+                    </label>
+                    <p class="ml-6 text-xs text-gray-500">(例如：文件名稱、報告標題等)</p>
+                </div>
+                
+                <div id="dropZone" class="mb-4">
+                    <p class="text-gray-500">將檔案拖曳至此處或點擊以選擇</p>
                     <p class="text-xs text-gray-400 mt-1">(支援 .txt 檔案，可用 Tab, 逗號, 直立線|分隔)</p>
                     <!-- 檔案輸入框，透過 JS 點擊觸發，因此不需要顯示 -->
                     <input type="file" id="fileInput" class="hidden" accept=".txt">
                 </div>
                 
                 <div class="flex flex-wrap space-x-2 mt-4">
+                    <!-- 這裡只保留一個按鈕，專門處理 pasteTextArea 的內容 -->
                     <button id="parsePasteBtn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-full transition-all duration-300">
-                        解析文字
+                        解析貼上的文字
                     </button>
                 </div>
             </div>
@@ -239,8 +249,9 @@
         const toggleInputModeBtn = document.getElementById('toggleInputModeBtn');
         const pasteTextArea = document.getElementById('pasteTextArea');
         const parsePasteBtn = document.getElementById('parsePasteBtn');
-        const fileDropZone = document.getElementById('fileDropZone');
+        const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
+        const skipFirstRowCheckbox = document.getElementById('skipFirstRow'); // 新增的核取方塊
         const formContainer = document.getElementById('formContainer');
         const tablePreview = document.getElementById('tablePreview');
         const downloadExcelBtn = document.getElementById('downloadExcelBtn');
@@ -671,6 +682,7 @@
         
         /**
          * 強化後的解析功能：自動偵測分隔符號。
+         * 新增邏輯：根據 skipFirstRowCheckbox 的狀態決定是否跳過第一行。
          */
         function parseText(text) {
             text = text.trim();
@@ -678,7 +690,14 @@
                 return false;
             }
             
-            const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+            const skipFirstRow = skipFirstRowCheckbox.checked; // 取得核取方塊的狀態
+            let lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+
+            // 如果勾選了跳過第一行，則移除第一行
+            if (skipFirstRow && lines.length > 1) {
+                lines = lines.slice(1);
+            }
+
             if (lines.length === 0) {
                 return false;
             }
@@ -716,12 +735,12 @@
         function handleParsePaste() {
             const text = pasteTextArea.value.trim();
             if (text === '') {
-                showMessageModal('解析失敗', '請先貼上表格內容或拖曳檔案。');
+                showMessageModal('解析失敗', '請先貼上表格內容。');
                 return;
             }
 
             if (parseText(text)) {
-                showMessageModal('解析成功', '已成功將文字轉換為表格。');
+                showMessageModal('解析成功', '已成功將貼上的文字轉換為表格。');
                 renderTablePreview();
                 renderForm();
             } else {
@@ -733,7 +752,7 @@
         function handleFileDrop(e) {
             e.preventDefault();
             e.stopPropagation();
-            fileDropZone.classList.remove('dragover');
+            dropZone.classList.remove('dragover');
             
             const file = e.dataTransfer.files[0];
             if (file) {
@@ -747,9 +766,9 @@
                 const reader = new FileReader();
                 reader.onload = (event) => {
                     const fileContent = event.target.result;
-                    if (file.type === 'text/plain') {
+                    if (file.type === 'text/plain' || file.name.endsWith('.txt')) {
                         if (parseText(fileContent)) {
-                            showMessageModal('檔案解析成功', '已成功將檔案內容轉換為表格。');
+                            showMessageModal('檔案解析成功', `已成功將檔案 "${file.name}" 內容轉換為表格。`);
                             renderTablePreview();
                             renderForm();
                         } else {
@@ -784,8 +803,8 @@
             renderTablePreview();
         });
         
-        // 新增點擊 fileDropZone 來觸發 fileInput 的點擊事件
-        fileDropZone.addEventListener('click', () => {
+        // 新增點擊 dropZone 來觸發 fileInput 的點擊事件
+        dropZone.addEventListener('click', () => {
             fileInput.click();
         });
 
@@ -797,17 +816,17 @@
             }
         });
 
-        fileDropZone.addEventListener('dragover', (e) => {
+        dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            fileDropZone.classList.add('dragover');
+            dropZone.classList.add('dragover');
         });
-        fileDropZone.addEventListener('dragleave', (e) => {
+        dropZone.addEventListener('dragleave', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            fileDropZone.classList.remove('dragover');
+            dropZone.classList.remove('dragover');
         });
-        fileDropZone.addEventListener('drop', handleFileDrop);
+        dropZone.addEventListener('drop', handleFileDrop);
         
         // 初始化時，渲染表單和預覽
         window.addEventListener('load', () => {
